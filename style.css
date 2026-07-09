@@ -5,7 +5,7 @@ body{font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif;ba
 .logo{text-align:center;margin-bottom:26px}
 .logo .zh{font-family:"Noto Serif TC","Microsoft JhengHei",serif;font-size:52px;font-weight:900;letter-spacing:6px;line-height:1.15;color:#241a10}
 .logo .en{font-size:14px;font-weight:800;letter-spacing:8px;color:#241a10;margin-top:8px}
-.logo img{max-width:180px;display:block;margin:0 auto}
+.logo img{max-width:110px;display:block;margin:0 auto}
 h2{font-size:17px;text-align:center;margin-bottom:20px;color:#5a4630;font-weight:600}
 label{display:block;font-size:13px;margin:14px 0 6px;color:#6b543a}
 input,textarea{width:100%;padding:11px 12px;border:1px solid #dfd0b8;border-radius:9px;font-size:15px;background:#fffdf9;font-family:inherit}
