@@ -25,6 +25,7 @@ main{padding:22px;max-width:1280px;margin:0 auto}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
 .kpi{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .kpi .v{font-size:24px;font-weight:800;color:var(--amber)}.kpi .l{font-size:12px;color:#7a6a55;margin-top:4px}
+.kpi .sub{font-size:11px;color:#9a8468;margin-top:6px;line-height:1.5}
 .card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px}
 .card h3{font-size:15px;margin-bottom:12px}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -195,12 +196,13 @@ function renderInv(){
  document.getElementById("specT").innerHTML=sh;
  document.getElementById("invTitle").textContent=`產品庫存總表（瓶）｜最新庫存日期：${LS.date}（雲端「長盛剩余庫存」）`;
  document.getElementById("invNote").innerHTML=`<b>來源：</b>雲端「長盛｜在庫與生產統計表 2026 → 梅酒庫存」流水帳。<b>2025 叫貨／出貨統計區間為 2025/1–12月</b>（完整全年）。最新庫存＝期初(2026/1/1)＋2026叫貨−2026出貨，已逐項核對與雲端 ${LS.date}「長盛剩余庫存」一致。2024結轉＝2024/12叫貨−2024/12出貨。`;
+ const kSub=k=>SPORD.concat(Object.keys(sagg).filter(s=>!SPORD.includes(s))).filter(s=>sagg[s]).map(s=>`${s} ${fmt(sagg[s][k])}`).join("｜");
  document.getElementById("kpis").innerHTML=
-  `<div class="kpi"><div class="v">${fmt(tot.cur)}</div><div class="l">最新庫存（雲端 ${LS.date}）</div></div>
-   <div class="kpi"><div class="v">${fmt(tot.open)}</div><div class="l">期初庫存 2026/1/1（瓶）</div></div>
-   <div class="kpi"><div class="v">${fmt(tot.o26)}</div><div class="l">2026 叫貨（瓶）</div></div>
-   <div class="kpi"><div class="v">${fmt(tot.x26)}</div><div class="l">2026 出貨（瓶）</div></div>
-   <div class="kpi"><div class="v">${fmt(tot.x25)}</div><div class="l">2025 出貨（1–12月）</div></div>`;
+  `<div class="kpi"><div class="v">${fmt(tot.cur)}</div><div class="l">最新庫存（雲端 ${LS.date}）</div><div class="sub">${kSub("cur")}</div></div>
+   <div class="kpi"><div class="v">${fmt(tot.open)}</div><div class="l">期初庫存 2026/1/1（瓶）</div><div class="sub">${kSub("open")}</div></div>
+   <div class="kpi"><div class="v">${fmt(tot.o26)}</div><div class="l">2026 叫貨（瓶）</div><div class="sub">${kSub("o26")}</div></div>
+   <div class="kpi"><div class="v">${fmt(tot.x26)}</div><div class="l">2026 出貨（瓶）</div><div class="sub">${kSub("x26")}</div></div>
+   <div class="kpi"><div class="v">${fmt(tot.x25)}</div><div class="l">2025 出貨（1–12月）</div><div class="sub">${kSub("x25")}</div></div>`;
 }
 function renderShip(){
  const yr=+shipYear.value, sel=shipProd.value;
