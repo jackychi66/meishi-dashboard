@@ -60,6 +60,7 @@ html.locked body{display:none}
 <div class="panel active" id="p-inv">
 <div class="kpis" id="kpis"></div>
 <div class="note" id="invNote"></div>
+<div class="card"><h3>容量別瓶數統計（瓶）</h3><div class="scroll"><table id="specT"></table></div></div>
 <div class="card"><h3 id="invTitle">產品庫存總表</h3><div class="scroll"><table id="invT"></table></div></div>
 </div>
 <div class="panel" id="p-ship">
@@ -67,6 +68,7 @@ html.locked body{display:none}
 <div class="card"><h3 id="shipChartTitle">每月出貨趨勢（瓶）</h3>
 <div class="filters"><select id="shipYear"><option value="2026" selected>2026年</option><option value="2025">2025年</option></select><select id="shipProd"><option value="">全部品項</option></select></div>
 <canvas id="shipChart"></canvas></div>
+<div class="card"><h3 id="shipSpecTitle">容量別每月出貨統計（瓶）</h3><div class="scroll"><table id="shipSpecT"></table></div></div>
 <div class="card"><h3 id="shipTTitle">每月出貨統計矩陣</h3>
 <div class="filters"><select id="shipYear2"><option value="2026" selected>2026年</option><option value="2025">2025年</option></select></div>
 <div class="scroll"><table id="shipT"></table></div></div>
@@ -181,6 +183,16 @@ function renderInv(){
   h+=`<tr><td>${r.p}</td><td>${r.s}</td><td>${fmt(r.net24)}</td><td>${fmt(r.o25)}</td><td>${fmt(r.x25)}</td><td>${fmt(r.open)}</td><td>${fmt(r.o26)}</td><td>${fmt(r.x26)}</td><td class="${r.cur<0?"neg":r.cur>0?"pos":""}">${fmt(r.cur)}</td></tr>`;});
  h+=`<tr class="totrow"><td>合計</td><td></td><td>${fmt(tot.net24)}</td><td>${fmt(tot.o25)}</td><td>${fmt(tot.x25)}</td><td>${fmt(tot.open)}</td><td>${fmt(tot.o26)}</td><td>${fmt(tot.x26)}</td><td>${fmt(tot.cur)}</td></tr>`;
  document.getElementById("invT").innerHTML=h;
+ // 容量別彙總
+ const SPORD=["700ml","250ml","300ml"];
+ const sagg={},scnt={};
+ LS.rows.forEach(r=>{const a=sagg[r.s]||(sagg[r.s]={net24:0,o25:0,x25:0,open:0,o26:0,x26:0,cur:0});
+  Object.keys(a).forEach(k=>a[k]+=r[k]);scnt[r.s]=(scnt[r.s]||0)+1;});
+ let sh='<tr><th>容量規格</th><th>品項數</th><th>2024結轉</th><th>2025叫貨<br>(1–12月)</th><th>2025出貨<br>(1–12月)</th><th>期初庫存(2026/1/1)</th><th>2026叫貨</th><th>2026出貨</th><th>最新庫存<br>('+LS.date+')</th></tr>';
+ Object.keys(sagg).sort((a,b)=>(SPORD.indexOf(a)+99*(SPORD.indexOf(a)<0))-(SPORD.indexOf(b)+99*(SPORD.indexOf(b)<0))).forEach(s=>{const a=sagg[s];
+  sh+=`<tr><td><b>${s}</b></td><td>${scnt[s]}</td><td>${fmt(a.net24)}</td><td>${fmt(a.o25)}</td><td>${fmt(a.x25)}</td><td>${fmt(a.open)}</td><td>${fmt(a.o26)}</td><td>${fmt(a.x26)}</td><td class="${a.cur<0?"neg":a.cur>0?"pos":""}">${fmt(a.cur)}</td></tr>`;});
+ sh+=`<tr class="totrow"><td>合計</td><td>${LS.rows.length}</td><td>${fmt(tot.net24)}</td><td>${fmt(tot.o25)}</td><td>${fmt(tot.x25)}</td><td>${fmt(tot.open)}</td><td>${fmt(tot.o26)}</td><td>${fmt(tot.x26)}</td><td>${fmt(tot.cur)}</td></tr>`;
+ document.getElementById("specT").innerHTML=sh;
  document.getElementById("invTitle").textContent=`產品庫存總表（瓶）｜最新庫存日期：${LS.date}（雲端「長盛剩余庫存」）`;
  document.getElementById("invNote").innerHTML=`<b>來源：</b>雲端「長盛｜在庫與生產統計表 2026 → 梅酒庫存」流水帳。<b>2025 叫貨／出貨統計區間為 2025/1–12月</b>（完整全年）。最新庫存＝期初(2026/1/1)＋2026叫貨−2026出貨，已逐項核對與雲端 ${LS.date}「長盛剩余庫存」一致。2024結轉＝2024/12叫貨−2024/12出貨。`;
  document.getElementById("kpis").innerHTML=
@@ -210,6 +222,16 @@ function renderShip(){
  const ct=MLBL.map((_,i)=>rows.reduce((a,r)=>a+r.arr[i],0));
  g+=`<tr class="totrow"><td>合計</td><td></td>${ct.map(v=>`<td>${fmt(v)}</td>`).join("")}<td>${fmt(ct.reduce((a,b)=>a+b,0))}</td></tr>`;
  document.getElementById("shipT").innerHTML=g;
+ // 容量別每月出貨
+ const SPORD2=["700ml","250ml","300ml"];
+ const sm={};
+ Object.keys(M).forEach(k=>{const s=k.split("||")[1];sm[s]=sm[s]||Array(12).fill(0);M[k].forEach((v,i)=>sm[s][i]+=v);});
+ let g2='<tr><th>容量規格</th>'+MLBL.map(m=>`<th>${m}</th>`).join("")+`<th>${yr}合計</th></tr>`;
+ Object.keys(sm).sort((a,b)=>(SPORD2.indexOf(a)+99*(SPORD2.indexOf(a)<0))-(SPORD2.indexOf(b)+99*(SPORD2.indexOf(b)<0))).forEach(s=>{
+  g2+=`<tr><td><b>${s}</b></td>${sm[s].map(v=>`<td>${v?fmt(v):"-"}</td>`).join("")}<td><b>${fmt(sm[s].reduce((a,b)=>a+b,0))}</b></td></tr>`;});
+ g2+=`<tr class="totrow"><td>合計</td>${ct.map(v=>`<td>${fmt(v)}</td>`).join("")}<td>${fmt(ct.reduce((a,b)=>a+b,0))}</td></tr>`;
+ document.getElementById("shipSpecT").innerHTML=g2;
+ document.getElementById("shipSpecTitle").textContent=`容量別每月出貨統計（瓶）｜${yr}年`;
 }
 function renderDet(){
  const y=fYear.value,m=fMonth.value,p=fProd.value,ds=fDst.value,q=fQ.value.trim();
@@ -217,6 +239,11 @@ function renderDet(){
  detN.textContent=rows.length;let tq=0;
  let g='<tr><th>年份</th><th>月份</th><th>出貨類別</th><th>品項</th><th>規格</th><th>數量(瓶)</th></tr>';
  rows.forEach(r=>{tq+=r.q;g+=`<tr><td>${r.y}</td><td>${r.m}月</td><td>${r.lb}</td><td>${r.p}</td><td>${r.s}</td><td>${fmt(r.q)}</td></tr>`;});
+ // 容量別小計（隨篩選連動）
+ const SPORD3=["700ml","250ml","300ml"];
+ const dsub={};rows.forEach(r=>{const a=dsub[r.s]||(dsub[r.s]={n:0,q:0});a.n++;a.q+=r.q;});
+ Object.keys(dsub).sort((a,b)=>(SPORD3.indexOf(a)+99*(SPORD3.indexOf(a)<0))-(SPORD3.indexOf(b)+99*(SPORD3.indexOf(b)<0))).forEach(s=>{
+  g+=`<tr style="background:#fdf6e3"><td colspan="5" style="text-align:right;font-weight:700">${s} 小計（${dsub[s].n} 筆）</td><td style="font-weight:700">${fmt(dsub[s].q)}</td></tr>`;});
  g+=`<tr class="totrow"><td>合計</td><td></td><td></td><td></td><td></td><td>${fmt(tq)}</td></tr>`;
  document.getElementById("detT").innerHTML=g;
 }
