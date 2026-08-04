@@ -48,6 +48,7 @@ select,input[type=text]{padding:7px 10px;border:1px solid #d8c9a8;border-radius:
 .scroll{max-height:560px;overflow:auto}
 .totrow td{font-weight:800;background:var(--cream)!important}
 .subrow td{font-weight:700;background:#fdf6e3!important;color:#6b543a}
+.warnc{color:#8a6d1a;font-weight:700}
 canvas{max-height:340px}
 footer{text-align:center;font-size:11px;color:#9a8a70;padding:18px}
 @media(max-width:700px){.tab{padding:8px 10px;font-size:13px}main{padding:12px}}
@@ -65,6 +66,7 @@ html.locked body{display:none}
 <div class="tab" data-t="ship">每月出貨</div>
 <div class="tab" data-t="det">出貨明細</div>
 <div class="tab" data-t="ord">叫貨紀錄</div>
+<div class="tab" data-t="turn">周轉分析</div>
 </div>
 <main>
 <div class="panel active" id="p-inv">
@@ -102,6 +104,16 @@ html.locked body{display:none}
 <div class="card"><h3 id="ordTTitle">叫貨（生產）紀錄</h3>
 <div class="filters"><select id="oYear"><option value="">全部年份</option></select></div>
 <div class="scroll"><table id="ordT"></table></div></div>
+</div>
+<div class="panel" id="p-turn">
+<div class="note" id="turnNote"></div>
+<div class="kpis" id="turnKpis"></div>
+<div class="card"><h3 id="turnTitle">叫貨周轉分析</h3>
+<div class="filters">
+<select id="turnMode"><option value="flavor" selected>依口味彙總</option><option value="spec">依品項×規格</option></select>
+<select id="turnSort"><option value="o12">出貨量高→低</option><option value="turn">周轉率高→低</option><option value="cover">庫存可撐月數少→多</option><option value="last">一次叫貨可撐月數多→少</option></select>
+</div>
+<div class="scroll"><table id="turnT"></table></div></div>
 </div>
 </main>
 <footer>梅侍 Plummate</footer>
@@ -361,7 +373,56 @@ function renderOrd(){
  document.getElementById("ordT").innerHTML=g;
  document.getElementById("ordTTitle").textContent=`叫貨（生產）紀錄｜${y?y+"年":"全部年份 2024/12 –"}（共 ${rows.length} 筆）`;
 }
-function renderAll(){renderInv();initFilters();renderShip();renderDet();renderOrdChart();renderOrd();}
+function renderTurn(){
+ const mode=document.getElementById("turnMode").value, sortBy=document.getElementById("turnSort").value;
+ let mx=0;LEV.forEach(e=>{const k=e.y*100+e.m;if(k>mx)mx=k;});
+ const Y=Math.floor(mx/100),M=mx%100;
+ const win=new Set();let wy=Y,wm=M;
+ for(let i=0;i<12;i++){win.add(wy*100+wm);wm--;if(wm===0){wy--;wm=12;}}
+ const first=[...win].sort()[0], fy=Math.floor(first/100), fm=first%100;
+ const K=(p,s)=>mode==="flavor"?p:p+"｜"+s;
+ const out={},inn={},bat={},cur={};
+ LEV.forEach(e=>{const k=K(e.p,e.s);
+  if(e.t==="O"&&win.has(e.y*100+e.m))out[k]=(out[k]||0)+e.q;
+  if(e.t==="I"){inn[k]=(inn[k]||0)+e.q;(bat[k]=bat[k]||new Set()).add(e.y+"/"+e.m+"/"+e.lb);}});
+ LS.rows.forEach(r=>{const k=K(r.p,r.s);cur[k]=(cur[k]||0)+r.cur;});
+ let rows=Object.keys(cur).concat(Object.keys(out).filter(k=>!(k in cur))).filter((v,i,a)=>a.indexOf(v)===i).map(k=>{
+  const o12=out[k]||0, c=cur[k]||0, nb=bat[k]?bat[k].size:0, avg=nb?(inn[k]||0)/nb:0, mo=o12/12;
+  return {k,o12,mo,c,nb,avg,turn:c>0?o12/c:null,days:(c>0&&o12>0)?365/(o12/c):null,
+   cover:mo>0?c/mo:null,last:(mo>0&&avg>0)?avg/mo:null};});
+ rows=rows.filter(r=>r.o12||r.c);
+ const cmp={o12:(a,b)=>b.o12-a.o12,turn:(a,b)=>(b.turn??-1)-(a.turn??-1),
+  cover:(a,b)=>(a.cover??1e9)-(b.cover??1e9),last:(a,b)=>(b.last??-1)-(a.last??-1)};
+ rows.sort(cmp[sortBy]);
+ const n=v=>v==null?"-":fmt(Math.round(v));
+ const d1=v=>v==null?"-":v.toFixed(1);
+ const d2=v=>v==null?"-":v.toFixed(2);
+ let g='<tr><th>'+(mode==="flavor"?"口味":"品項｜規格")+'</th><th>近12月出貨</th><th>月均出貨</th><th>目前庫存</th><th>庫存可撐<br>(月)</th><th>周轉率<br>(次/年)</th><th>周轉天數</th><th>叫貨次數</th><th>平均每次<br>叫貨量</th><th>一次叫貨<br>可撐(月)</th><th>判讀</th></tr>';
+ rows.forEach(r=>{
+  let tag="",cls="";
+  if(r.cover!==null&&r.cover<1){tag="🔴 斷貨風險";cls="neg";}
+  else if(r.cover!==null&&r.cover<2){tag="⚠ 水位偏低";cls="warnc";}
+  else if(r.last!==null&&r.last>12){tag="🐢 叫貨量過大";cls="warnc";}
+  else if(r.o12===0){tag="—";}
+  else {tag="✓ 正常";cls="pos";}
+  g+=`<tr><td><b>${r.k}</b></td><td>${n(r.o12)}</td><td>${n(r.mo)}</td><td>${n(r.c)}</td><td class="${r.cover!==null&&r.cover<2?"neg":""}">${d1(r.cover)}</td><td>${d2(r.turn)}</td><td>${n(r.days)}</td><td>${r.nb}</td><td>${n(r.avg)}</td><td class="${r.last!==null&&r.last>12?"warnc":""}">${d1(r.last)}</td><td class="${cls}" style="text-align:left">${tag}</td></tr>`;});
+ const to=rows.reduce((a,r)=>a+r.o12,0), tc=rows.reduce((a,r)=>a+r.c,0);
+ const tturn=tc>0?to/tc:null;
+ g+=`<tr class="totrow"><td>總計</td><td>${n(to)}</td><td>${n(to/12)}</td><td>${n(tc)}</td><td>${d1(tc/(to/12))}</td><td>${d2(tturn)}</td><td>${n(tturn?365/tturn:null)}</td><td></td><td></td><td></td><td></td></tr>`;
+ document.getElementById("turnT").innerHTML=g;
+ document.getElementById("turnTitle").textContent=`叫貨周轉分析｜統計區間 ${fy}/${fm} – ${Y}/${M}（近 12 個月）`;
+ const risk=rows.filter(r=>r.cover!==null&&r.cover<1), slow=rows.filter(r=>r.last!==null&&r.last>12);
+ document.getElementById("turnKpis").innerHTML=
+  `<div class="kpi"><div class="v">${d2(tturn)}</div><div class="l">整體周轉率（次/年）</div><div class="sub">周轉天數 ${n(tturn?365/tturn:null)} 天</div></div>
+   <div class="kpi"><div class="v">${n(to/12)}</div><div class="l">月均出貨（瓶）</div><div class="sub">近12月合計 ${n(to)} 瓶</div></div>
+   <div class="kpi"><div class="v">${d1(tc/(to/12))}</div><div class="l">整體庫存可撐（月）</div><div class="sub">目前庫存 ${n(tc)} 瓶</div></div>
+   <div class="kpi"><div class="v" style="color:var(--red)">${risk.length}</div><div class="l">斷貨風險品項（<1個月）</div><div class="sub">${risk.slice(0,3).map(r=>r.k).join("、")||"無"}</div></div>
+   <div class="kpi"><div class="v" style="color:#8a6d1a">${slow.length}</div><div class="l">叫貨量過大（一次>12個月）</div><div class="sub">${slow.slice(0,3).map(r=>r.k).join("、")||"無"}</div></div>`;
+ document.getElementById("turnNote").innerHTML=`<b>算法：</b>月均出貨＝近 12 個月出貨 ÷ 12；<b>庫存可撐月數</b>＝目前庫存 ÷ 月均出貨（低於 1 個月即低於長盛生產前置期，有斷貨風險）；<b>周轉率</b>＝近12月出貨 ÷ 目前庫存，<b>周轉天數</b>＝365 ÷ 周轉率；<b>一次叫貨可撐月數</b>＝歷史平均每次叫貨量 ÷ 月均出貨（超過 12 個月代表單次下單量過大、資金積壓）。資料來源與庫存總覽相同（雲端「梅酒庫存」流水帳），同步後自動重算。`;
+}
+document.getElementById("turnMode").onchange=renderTurn;
+document.getElementById("turnSort").onchange=renderTurn;
+function renderAll(){renderInv();initFilters();renderShip();renderDet();renderOrdChart();renderOrd();renderTurn();}
 shipYear.onchange=()=>{shipYear2.value=shipYear.value;renderShip();};
 shipYear2.onchange=()=>{shipYear.value=shipYear2.value;renderShip();};
 shipProd.onchange=renderShip;
