@@ -1,29 +1,60 @@
 name: Supabase Keep-Alive
 
-# 每 3 天叫用一次 Supabase REST API，產生資料庫活動，
-# 避免免費方案「閒置 7 天自動暫停」導致後台登入出現 Failed to fetch。
+# 每天 ping 一次 Supabase（REST + Auth），避免免費方案閒置 7 天自動暫停。
+# 只接受 HTTP 200；540 代表專案已暫停，會讓這個 workflow 失敗並寄信通知。
 on:
   schedule:
-    - cron: "0 2 */3 * *"   # UTC 02:00（台灣時間 10:00），每 3 天一次
-  workflow_dispatch:         # 也可在 Actions 頁面手動執行
+    - cron: "0 2 * * *"   # UTC 02:00 = 台灣 10:00，每天
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SB_URL: https://rnfoiterxmmryvwbfyua.supabase.co
+  SB_KEY: sb_publishable_54p-0XXq0my6_Se8mAEPUA_vm0UPU8A
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase REST API
+      - name: Ping REST (profiles)
         run: |
-          URL="https://rnfoiterxmmryvwbfyua.supabase.co/rest/v1/profiles?select=id&limit=1"
-          KEY="sb_publishable_54p-0XXq0my6_Se8mAEPUA_vm0UPU8A"
-          CODE=$(curl -s -o /tmp/resp.txt -w "%{http_code}" --max-time 30 \
-                 -H "apikey: $KEY" -H "Authorization: Bearer $KEY" "$URL")
-          echo "HTTP $CODE"
-          head -c 300 /tmp/resp.txt || true
+          CODE=$(curl -s -o /tmp/r.txt -w "%{http_code}" --max-time 30 \
+            -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" \
+            "$SB_URL/rest/v1/profiles?select=id&limit=1")
+          echo "REST HTTP $CODE"
+          head -c 300 /tmp/r.txt || true
           echo
-          if [ "$CODE" = "200" ] || [ "$CODE" = "401" ] || [ "$CODE" = "403" ]; then
-            echo "✅ Supabase 有回應，專案存活"
-          else
-            echo "⚠️ Supabase 無回應（HTTP $CODE），專案可能已暫停"
-            echo "請到 https://supabase.com/dashboard/project/rnfoiterxmmryvwbfyua 點 Resume project"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::REST 回應 $CODE。540 代表專案已暫停 → 到 Supabase Dashboard 按 Resume project"
             exit 1
           fi
+
+      - name: Ping Auth (health)
+        run: |
+          CODE=$(curl -s -o /tmp/a.txt -w "%{http_code}" --max-time 30 \
+            -H "apikey: $SB_KEY" "$SB_URL/auth/v1/health")
+          echo "AUTH HTTP $CODE"
+          head -c 300 /tmp/a.txt || true
+          echo
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Auth 回應 $CODE — 後台登入會出現 Failed to fetch"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        if: github.event_name == 'schedule'
+
+      - name: Weekly heartbeat commit  # 避免 GitHub 因 repo 60 天無活動自動停用排程
+        if: github.event_name == 'schedule'
+        run: |
+          [ "$(date -u +%u)" = "1" ] || { echo "非週一，略過"; exit 0; }
+          mkdir -p .github
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-keepalive.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/last-keepalive.txt
+          git diff --cached --quiet && { echo "無變更"; exit 0; }
+          git commit -m "chore: keepalive heartbeat"
+          git push
