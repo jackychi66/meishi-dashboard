@@ -1,7 +1,7 @@
 name: Supabase Keep-Alive
 
 # 每天 ping 一次 Supabase（REST + Auth），避免免費方案閒置 7 天自動暫停。
-# 只接受 HTTP 200；540 代表專案已暫停，會讓這個 workflow 失敗並寄信通知。
+# 接受 HTTP 200 或 401（401 = 專案活著但匿名 key 無權限，例如 is_admin 被鎖）；540 或連線失敗代表專案已暫停，會讓這個 workflow 失敗並寄信通知。
 on:
   schedule:
     - cron: "0 2 * * *"   # UTC 02:00 = 台灣 10:00，每天
@@ -26,8 +26,8 @@ jobs:
           echo "REST HTTP $CODE"
           head -c 300 /tmp/r.txt || true
           echo
-          if [ "$CODE" != "200" ]; then
-            echo "::error::REST 回應 $CODE。540 代表專案已暫停 → 到 Supabase Dashboard 按 Resume project"
+          if [ "$CODE" != "200" ] && [ "$CODE" != "401" ]; then
+            echo "::error::REST 回應 $CODE。540 或連線失敗代表專案已暫停 → 到 Supabase Dashboard 按 Resume project"
             exit 1
           fi
 
