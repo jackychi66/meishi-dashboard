@@ -1,16 +1,26 @@
 name: Supabase Keep-Alive
 
-# 每天 ping 一次 Supabase（REST + Auth），避免免費方案閒置 7 天自動暫停。
-# 接受 HTTP 200 或 401（401 = 專案活著但匿名 key 無權限，例如 is_admin 被鎖）；540 或連線失敗代表專案已暫停，會讓這個 workflow 失敗並寄信通知。
+# v2（2026-11-16）
+# 背景：v1 每天 ping 都「成功」（REST 回 401 permission denied），專案仍在 11/16 被暫停。
+#   → 被擋下的請求不算有效活動。v2 改呼叫專用函式 public.keepalive()，實際寫一筆資料進 DB。
+# 改進：
+#   1. 真的寫 DB（upsert 一列心跳），不再接受 401 當成功
+#   2. 一天兩次（台灣 10:07 / 22:07），避開整點排程擁塞，GitHub 漏跑一次也不怕
+#   3. 每次最多重試 3 次（間隔 20 秒），暫時性網路問題不再誤報
+#   4. 連線失敗也會印出清楚訊息（不再只有 exit code 6）
+#   5. 偵測到專案被暫停 → 若有設 SUPABASE_ACCESS_TOKEN，自動呼叫 Supabase API 恢復專案（免費）
+#   6. 每週一 heartbeat commit，避免 GitHub 60 天無活動停用排程
+
 on:
   schedule:
-    - cron: "0 2 * * *"   # UTC 02:00 = 台灣 10:00，每天
+    - cron: "7 2,14 * * *"   # UTC 02:07 / 14:07 = 台灣 10:07 / 22:07
   workflow_dispatch:
 
 permissions:
   contents: write
 
 env:
+  SB_REF: rnfoiterxmmryvwbfyua
   SB_URL: https://rnfoiterxmmryvwbfyua.supabase.co
   SB_KEY: sb_publishable_54p-0XXq0my6_Se8mAEPUA_vm0UPU8A
 
@@ -18,30 +28,55 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping REST (profiles)
+      - name: Write heartbeat to DB (rpc/keepalive)
+        id: db
         run: |
-          CODE=$(curl -s -o /tmp/r.txt -w "%{http_code}" --max-time 30 \
-            -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" \
-            "$SB_URL/rest/v1/profiles?select=id&limit=1")
-          echo "REST HTTP $CODE"
-          head -c 300 /tmp/r.txt || true
-          echo
-          if [ "$CODE" != "200" ] && [ "$CODE" != "401" ]; then
-            echo "::error::REST 回應 $CODE。540 或連線失敗代表專案已暫停 → 到 Supabase Dashboard 按 Resume project"
-            exit 1
-          fi
+          for i in 1 2 3; do
+            CODE=$(curl -s -o /tmp/r.txt -w "%{http_code}" --max-time 30 -X POST \
+              -H "apikey: $SB_KEY" -H "Authorization: Bearer $SB_KEY" \
+              -H "Content-Type: application/json" -d '{}' \
+              "$SB_URL/rest/v1/rpc/keepalive") || CODE=000
+            echo "第 $i 次：DB HTTP $CODE"; head -c 300 /tmp/r.txt 2>/dev/null; echo
+            [ "$CODE" = "200" ] && { echo "status=ok" >> "$GITHUB_OUTPUT"; exit 0; }
+            [ $i -lt 3 ] && sleep 20
+          done
+          echo "status=down" >> "$GITHUB_OUTPUT"
+          echo "::error::DB 心跳失敗（HTTP $CODE）。000/540 = 專案可能已暫停；404 = keepalive 函式不存在；401 = anon 沒有執行權限"
+          exit 1
 
       - name: Ping Auth (health)
+        if: steps.db.outputs.status == 'ok'
         run: |
-          CODE=$(curl -s -o /tmp/a.txt -w "%{http_code}" --max-time 30 \
-            -H "apikey: $SB_KEY" "$SB_URL/auth/v1/health")
-          echo "AUTH HTTP $CODE"
-          head -c 300 /tmp/a.txt || true
-          echo
-          if [ "$CODE" != "200" ]; then
-            echo "::error::Auth 回應 $CODE — 後台登入會出現 Failed to fetch"
+          for i in 1 2 3; do
+            CODE=$(curl -s -o /tmp/a.txt -w "%{http_code}" --max-time 30 \
+              -H "apikey: $SB_KEY" "$SB_URL/auth/v1/health") || CODE=000
+            echo "第 $i 次：AUTH HTTP $CODE"
+            [ "$CODE" = "200" ] && exit 0
+            [ $i -lt 3 ] && sleep 20
+          done
+          echo "::error::Auth 回應 $CODE — 後台登入會出現 Failed to fetch"
+          exit 1
+
+      - name: Auto-resume paused project
+        if: failure() && steps.db.outputs.status == 'down'
+        env:
+          SB_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$SB_TOKEN" ]; then
+            echo "::warning::未設定 SUPABASE_ACCESS_TOKEN，無法自動恢復 → 請到 Supabase Dashboard 手動按 Resume project"
             exit 1
           fi
+          STATUS=$(curl -s --max-time 30 -H "Authorization: Bearer $SB_TOKEN" \
+            "https://api.supabase.com/v1/projects/$SB_REF" | grep -o '"status":"[A-Z_]*"' | head -1)
+          echo "專案狀態：$STATUS"
+          if echo "$STATUS" | grep -q "INACTIVE"; then
+            CODE=$(curl -s -o /tmp/x.txt -w "%{http_code}" --max-time 60 -X POST \
+              -H "Authorization: Bearer $SB_TOKEN" \
+              "https://api.supabase.com/v1/projects/$SB_REF/restore") || CODE=000
+            echo "Restore HTTP $CODE"; cat /tmp/x.txt; echo
+            echo "::warning::專案曾被暫停，已自動送出恢復（約 2–5 分鐘完成）。本次仍標記失敗以便通知。"
+          fi
+          exit 1
 
       - uses: actions/checkout@v4
         if: github.event_name == 'schedule'
@@ -49,7 +84,7 @@ jobs:
       - name: Weekly heartbeat commit  # 避免 GitHub 因 repo 60 天無活動自動停用排程
         if: github.event_name == 'schedule'
         run: |
-          [ "$(date -u +%u)" = "1" ] || { echo "非週一，略過"; exit 0; }
+          [ "$(TZ=Asia/Taipei date +%u)" = "1" ] && [ "$(TZ=Asia/Taipei date +%H)" -lt 12 ] || { echo "非週一上午，略過"; exit 0; }
           mkdir -p .github
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-keepalive.txt
           git config user.name "github-actions[bot]"
